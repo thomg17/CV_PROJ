@@ -10,4 +10,4 @@ Authors:
 hi
 ## Setup
 ## Sources
-sdasdaasd
+The base hidden architecture is sourced from ando khachatryan [repo](https://github.com/ando-khachatryan/HiDDeN).
