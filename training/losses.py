@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Image_Loss(nn.Module):
-    """Compute the Image Loss
+    """Compute the Image Loss as specified in DADW:
     L_I = a_1 * L2(I_co, I_en) + a_2 * L_G(I_en)
 
     Where L_G is the GAN loss (same as the adversarial loss in HiDDeN)
@@ -45,7 +45,9 @@ class Image_Loss(nn.Module):
 
 
 class  Message_Loss(nn.Module):
-    """Computes the message loss from the output of the decoded message"""
+    """Computes the message loss from the output of the decoded message as specified in DADW:
+    a_m * L2(X'_dec, X')
+    """
     def __init__(
         self,
         alpha_m: float
