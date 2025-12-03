@@ -41,7 +41,7 @@ class Image_Loss(nn.Module):
         """
         L_G = torch.log(1 - Discriminator_out + 1e-12)
         L_I = self.a1 * self._l2(I_co, I_en) + self.a2 * L_G
-        return L_I.mean()
+        return L_I
 
 
 class  Message_Loss(nn.Module):
@@ -70,7 +70,7 @@ class  Message_Loss(nn.Module):
             not sure what this actually is.
         """
         L_M = self.am * ((X_prime_dec - X_prime)**2).flatten(1).mean(dim=1)
-        return L_M.mean()
+        return L_M
 
 
 class Adversarial_Loss(nn.Module):
@@ -142,3 +142,44 @@ class Adversarial_Loss(nn.Module):
         l2_adv = self._l2_adv(I_adv, I_en)
         l2_msg = self._l2_msg(F_prob, X)
         return (self.a1 * l2_adv - self.a2 * l2_msg).mean()
+
+
+class Watermarking_Loss(nn.Module):
+    """Watermarking Loss as specified in DADW:
+    L_W = L_I + L_M + a_w * L2(X'_adv, X')
+    """
+    def __init__(
+        self,
+        alpha_w: float,
+        alpha_m: float,
+        alpha1: float,
+        alpha2: float
+
+    ):
+        super().__init__()
+        self.aw = alpha_w
+        self.L_I = Image_Loss(alpha1, alpha2)
+        self.L_M = Message_Loss(alpha_m)
+    
+    @staticmethod
+    def _l2(
+        x_prime_adv: torch.Tensor,
+        x_prime: torch.Tensor
+    ) -> torch.Tensor:
+        """asdf"""
+        return ((x_prime_adv - x_prime)**2).flatten(1).mean(dim=1)
+
+    def forward(
+        self,
+        I_en: torch.Tensor,
+        I_co: torch.Tensor,
+        Discriminator_out: torch.Tensor,
+        X_prime_dec: torch.Tensor, 
+        X_prime: torch.Tensor,
+        X_prime_adv: torch.Tensor
+    ) -> torch.Tensor:
+        """asdf"""
+        L_I = self.L_I(I_co, I_en, Discriminator_out)
+        L_M = self.L_M(X_prime_dec, X_prime)
+        L_W = L_I + L_M + self.aw * self._l2(X_prime_adv, X_prime)
+        return L_W.mean()
