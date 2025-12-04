@@ -2,23 +2,25 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Loss definition
-#   Compute 2D FFT on (H,W), take (log-)magnitude spectra, form weighted
-#   difference, reduce to per-sample scalar.
-#     L_fft = || w(f) * (S(pred) - S(target)) ||_p
-#   w(f) = r(f)^alpha over the 2D frequency radius r in [0,1].
-#
-# Parameters (constructor)
-#   p         : 1 or 2. Norm on spectral diff (L1 or L2).
-#   log_mag   : bool. True uses log-magnitude 
-#   alpha     : float. Frequency weighting exponent; 0.0 = uniform, >0 boosts
-#               high frequencies, <0 boosts low frequencies.
-#   eps       : float. Numerical stability for magnitude/log.
-
 class FFTConsistencyLoss(nn.Module):
     """
     Custom Fourier-domain consistency loss between two images (BxCxHxW).
-    L_fft = || w(f) * (log|F(pred)| - log|F(target)|) ||_p   
+    L_fft = || w(f) * (log|F(pred)| - log|F(target)|) ||_p
+    
+    Parameters
+    ----------
+    p : int
+        1 or 2. Norm on spectral diff (L1 or L2)
+    
+    log_mag : bool
+        If true, uses log-magnitude
+
+    alpha : float
+        Frequency weighting exponent; 0.0 = uniform, >0 boosts high frequencies,\
+        <0 boosts low frequencies
+    
+    eps : float
+        numerical stablitity term (avoiding divide-by-zero type errors)
     """
     def __init__(self, p: int = 1, log_mag: bool = True, alpha: float = 1.0, eps: float = 1e-6):
         super().__init__()
@@ -42,10 +44,8 @@ class FFTConsistencyLoss(nn.Module):
         return w
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        if pred.shape != target.shape:
-            raise ValueError(f"FFTConsistencyLoss: shape mismatch {pred.shape} vs {target.shape}")
         B, C, H, W = pred.shape
-        device, dtype = pred.device, pred.dtype
+        # device, dtype = pred.device, pred.dtype
 
         Fx = torch.fft.fft2(pred, dim=(-2, -1), norm="ortho")
         Fy = torch.fft.fft2(target, dim=(-2, -1), norm="ortho")
@@ -55,8 +55,9 @@ class FFTConsistencyLoss(nn.Module):
             Sx = torch.log(Sx)
             Sy = torch.log(Sy)
 
-        w = self._radial_weights(H, W, device, dtype).view(1, 1, H, W)
-        D = (Sx - Sy) * w  # BxCxHxW
+        # For now lets avoid weighting and add it later.
+        # w = self._radial_weights(H, W, device, dtype).view(1, 1, H, W)
+        D = (Sx - Sy)# * w  # BxCxHxW
 
         if self.p == 1:
             per = D.abs()
@@ -65,19 +66,20 @@ class FFTConsistencyLoss(nn.Module):
         else:
             per = D.abs().pow(self.p)
 
-        return per.view(B, -1).mean(dim=1) 
+        return (per.view(B, -1).mean(dim=1)).mean()
  
 class Image_Loss(nn.Module):
     """Compute the Image Loss as specified in DADW:
-    L_I = a_1 * L2(I_co, I_en) + a_2 * L_G(I_en) [+ a_fft * L_FFT(I_en, I_co)]
+    L_I = a_1 * L2(I_co, I_en) + a_2 * L_G(I_en)
     """
-    def __init__(self, alpha1: float, alpha2: float,
-                 alpha_fft: float = 0.0, fft_p: int = 1, fft_log_mag: bool = True, fft_alpha: float = 1.0):
+    def __init__(
+            self,
+            alpha1: float,
+            alpha2: float
+    ):
         super().__init__()
         self.a1 = alpha1
         self.a2 = alpha2
-        self.a_fft = alpha_fft
-        self._fft = FFTConsistencyLoss(p=fft_p, log_mag=fft_log_mag, alpha=fft_alpha)
 
     @staticmethod
     def _l2(
@@ -106,11 +108,7 @@ class Image_Loss(nn.Module):
             The output of the discriminator 
         """
         L_G = torch.log(1 - Discriminator_out + 1e-12)
-        base = self.a1 * self._l2(I_co, I_en) + self.a2 * L_G
-        if self.a_fft != 0.0:
-            L_fft = self._fft(I_en, I_co)  # per-sample [B]
-            return base + self.a_fft * L_fft
-        return base
+        return self.a1 * self._l2(I_co, I_en) + self.a2 * L_G
 
 
 class  Message_Loss(nn.Module):
@@ -223,16 +221,10 @@ class Watermarking_Loss(nn.Module):
         alpha_m: float,
         alpha1: float,
         alpha2: float,
-        alpha_fft: float = 0.0,      # We need to add weight for FFT term
-        fft_p: int = 1,              #  norm for spectral diff
-        fft_log_mag: bool = True,    # use log-magnitude
-        fft_alpha: float = 1.0       # frequency weighting exponent
     ):
         super().__init__()
         self.aw = alpha_w
-        self.L_I = Image_Loss(alpha1, alpha2,
-                              alpha_fft=alpha_fft, fft_p=fft_p,
-                              fft_log_mag=fft_log_mag, fft_alpha=fft_alpha)
+        self.L_I = Image_Loss(alpha1, alpha2)
         self.L_M = Message_Loss(alpha_m)
     
     @staticmethod
