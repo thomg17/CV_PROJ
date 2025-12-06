@@ -6,20 +6,18 @@ from options import HiDDenConfiguration
 from model.discriminator import Discriminator
 from model.encoder_decoder import EncoderDecoder
 from vgg_loss import VGGLoss
-from noise_layers.noiser import Noiser
 
 
 class Hidden:
-    def __init__(self, configuration: HiDDenConfiguration, device: torch.device, noiser: Noiser, tb_logger):
+    def __init__(self, configuration: HiDDenConfiguration, device: torch.device, tb_logger=None):
         """
         :param configuration: Configuration for the net, such as the size of the input image, number of channels in the intermediate layers, etc.
         :param device: torch.device object, CPU or GPU
-        :param noiser: Object representing stacked noise layers.
         :param tb_logger: Optional TensorboardX logger object, if specified -- enables Tensorboard logging
         """
         super(Hidden, self).__init__()
 
-        self.encoder_decoder = EncoderDecoder(configuration, noiser).to(device)
+        self.encoder_decoder = EncoderDecoder(configuration).to(device)
         self.discriminator = Discriminator(configuration).to(device)
         self.optimizer_enc_dec = torch.optim.Adam(self.encoder_decoder.parameters())
         self.optimizer_discrim = torch.optim.Adam(self.discriminator.parameters())
