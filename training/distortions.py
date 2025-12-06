@@ -78,7 +78,7 @@ def color_change(img):
 
 def flipper(img):
     flipper_selector = random.randint(0,2)
-    match flipper:
+    match flipper_selector:
         case 0:
             img = ImageOps.flip(img)
         case 1:

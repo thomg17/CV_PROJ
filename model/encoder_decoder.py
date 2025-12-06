@@ -26,6 +26,6 @@ class EncoderDecoder(nn.Module):
         encoded_image = self.encoder(image, message)
         #noised_and_cover = self.noiser([encoded_image, image])
         #noised_image = noised_and_cover[0]
-        noised_image = self.atacker(image)
+        noised_image = self.attacker(encoded_image)
         decoded_message = self.decoder(noised_image)
         return encoded_image, noised_image, decoded_message
