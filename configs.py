@@ -69,7 +69,7 @@ def get_full_config():
         use_fft_loss=True,
         fft_loss_weight=0.1,
         use_distortion_pool=True,
-        distortion_prob=0.5
+        distortion_prob=0.2  # Reduced from 0.5 - too aggressive for early training
     )
 
 
