@@ -22,7 +22,9 @@ class Encoder(nn.Module):
             layers.append(layer)
 
         self.conv_layers = nn.Sequential(*layers)
-        self.after_concat_layer = ConvBNRelu(self.conv_channels + 3 + config.message_length,
+        # Use redundant_length if NECST is enabled, otherwise message_length
+        message_len = config.redundant_length if config.use_necst else config.message_length
+        self.after_concat_layer = ConvBNRelu(self.conv_channels + 3 + message_len,
                                              self.conv_channels)
 
         self.final_layer = nn.Conv2d(self.conv_channels, 3, kernel_size=1)

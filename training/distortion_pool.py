@@ -36,6 +36,7 @@ class DistortionPool:
             Distorted images tensor (B, C, H, W)
         """
         batch_size = images_tensor.shape[0]
+        target_h, target_w = images_tensor.shape[2], images_tensor.shape[3]
         distorted_batch = []
 
         for i in range(batch_size):
@@ -72,7 +73,7 @@ class DistortionPool:
                 print(f"Warning: Distortion {distortion_type} failed: {e}")
                 img_distorted = img_np
 
-            # Ensure correct format
+            # Ensure correct format - convert PIL to numpy
             if isinstance(img_distorted, Image.Image):
                 img_distorted = np.array(img_distorted)
 
@@ -80,9 +81,24 @@ class DistortionPool:
             if img_distorted.ndim == 2:
                 img_distorted = np.stack([img_distorted] * 3, axis=-1)
 
+            # Ensure uint8 type
+            if img_distorted.dtype != np.uint8:
+                img_distorted = img_distorted.astype(np.uint8)
+
+            # ALWAYS resize to ensure consistent dimensions (some distortions may change size slightly)
+            # Convert to PIL for resizing
+            img_pil_resized = Image.fromarray(img_distorted, mode='RGB')
+            img_pil_resized = img_pil_resized.resize((target_w, target_h), Image.BILINEAR)
+            img_distorted = np.array(img_pil_resized)
+
             # Convert back to tensor
             img_distorted = torch.from_numpy(img_distorted).float() / 255.0
             img_distorted = img_distorted.permute(2, 0, 1)  # (H, W, C) -> (C, H, W)
+
+            # FINAL SAFETY CHECK: Verify shape and force replace if wrong
+            if img_distorted.shape != (3, target_h, target_w):
+                print(f"CRITICAL ERROR [{i}]: Distortion {distortion_type} STILL has wrong shape {img_distorted.shape} after resize! Using original tensor.")
+                img_distorted = img_tensor
 
             distorted_batch.append(img_distorted)
 

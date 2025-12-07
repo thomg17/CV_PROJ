@@ -14,17 +14,20 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.channels = config.decoder_channels
 
+        # Use redundant_length if NECST is enabled, otherwise message_length
+        message_len = config.redundant_length if config.use_necst else config.message_length
+
         layers = [ConvBNRelu(3, self.channels)]
         for _ in range(config.decoder_blocks - 1):
             layers.append(ConvBNRelu(self.channels, self.channels))
 
-        # layers.append(block_builder(self.channels, config.message_length))
-        layers.append(ConvBNRelu(self.channels, config.message_length))
+        # layers.append(block_builder(self.channels, message_len))
+        layers.append(ConvBNRelu(self.channels, message_len))
 
         layers.append(nn.AdaptiveAvgPool2d(output_size=(1, 1)))
         self.layers = nn.Sequential(*layers)
 
-        self.linear = nn.Linear(config.message_length, config.message_length)
+        self.linear = nn.Linear(message_len, message_len)
 
     def forward(self, image_with_wm):
         x = self.layers(image_with_wm)

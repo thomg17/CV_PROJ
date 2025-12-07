@@ -31,7 +31,14 @@ class HiDDenConfiguration():
                  decoder_loss: float,
                  encoder_loss: float,
                  adversarial_loss: float,
-                 enable_fp16: bool = False):
+                 enable_fp16: bool = False,
+                 use_necst: bool = True,
+                 redundant_length: int = None,
+                 necst_iter: int = 10000,
+                 use_fft_loss: bool = True,
+                 fft_loss_weight: float = 0.1,
+                 use_distortion_pool: bool = True,
+                 distortion_prob: float = 0.5):
         self.H = H
         self.W = W
         self.message_length = message_length
@@ -47,3 +54,10 @@ class HiDDenConfiguration():
         self.encoder_loss = encoder_loss
         self.adversarial_loss = adversarial_loss
         self.enable_fp16 = enable_fp16
+        self.use_necst = use_necst
+        self.redundant_length = redundant_length if redundant_length else message_length * 2
+        self.necst_iter = necst_iter
+        self.use_fft_loss = use_fft_loss
+        self.fft_loss_weight = fft_loss_weight
+        self.use_distortion_pool = use_distortion_pool
+        self.distortion_prob = distortion_prob

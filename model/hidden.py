@@ -5,6 +5,9 @@ import torch.nn as nn
 from options import HiDDenConfiguration
 from model.discriminator import Discriminator
 from model.encoder_decoder import EncoderDecoder
+from model.necst import NECST
+from training.losses import FFTConsistencyLoss
+from training.distortion_pool import DistortionPool, HybridDistorter
 from vgg_loss import VGGLoss
 
 
@@ -17,7 +20,28 @@ class Hidden:
         """
         super(Hidden, self).__init__()
 
-        self.encoder_decoder = EncoderDecoder(configuration).to(device)
+        # Initialize NECST channel coding if enabled
+        if configuration.use_necst:
+            self.necst = NECST(configuration, device).to(device)
+            print("NECST channel encoder/decoder initialized")
+        else:
+            self.necst = None
+
+        # Initialize HybridDistorter if distortion pool is enabled
+        hybrid_distorter = None
+        if configuration.use_distortion_pool:
+            # Create temporary encoder_decoder to access its attack network
+            temp_enc_dec = EncoderDecoder(configuration)
+            attack_network = temp_enc_dec.attacker.to(device)
+            distortion_pool = DistortionPool(device)
+            hybrid_distorter = HybridDistorter(
+                attack_network=attack_network,
+                distortion_pool=distortion_pool,
+                distortion_prob=configuration.distortion_prob
+            )
+            print(f"HybridDistorter initialized with distortion_prob={configuration.distortion_prob}")
+
+        self.encoder_decoder = EncoderDecoder(configuration, hybrid_distorter=hybrid_distorter).to(device)
         self.discriminator = Discriminator(configuration).to(device)
         self.optimizer_enc_dec = torch.optim.Adam(self.encoder_decoder.parameters())
         self.optimizer_discrim = torch.optim.Adam(self.discriminator.parameters())
@@ -27,6 +51,13 @@ class Hidden:
             self.vgg_loss.to(device)
         else:
             self.vgg_loss = None
+
+        # Initialize FFT consistency loss if enabled
+        if configuration.use_fft_loss:
+            self.fft_loss = FFTConsistencyLoss(p=1, log_mag=True, alpha=1.0).to(device)
+            print("FFT consistency loss initialized")
+        else:
+            self.fft_loss = None
 
         self.config = configuration
         self.device = device
@@ -64,16 +95,22 @@ class Hidden:
             # ---------------- Train the discriminator -----------------------------
             self.optimizer_discrim.zero_grad()
             # train on cover
-            d_target_label_cover = torch.full((batch_size, 1), self.cover_label, device=self.device)
-            d_target_label_encoded = torch.full((batch_size, 1), self.encoded_label, device=self.device)
-            g_target_label_encoded = torch.full((batch_size, 1), self.cover_label, device=self.device)
+            d_target_label_cover = torch.full((batch_size, 1), self.cover_label, device=self.device, dtype=torch.float)
+            d_target_label_encoded = torch.full((batch_size, 1), self.encoded_label, device=self.device, dtype=torch.float)
+            g_target_label_encoded = torch.full((batch_size, 1), self.cover_label, device=self.device, dtype=torch.float)
 
             d_on_cover = self.discriminator(images)
             d_loss_on_cover = self.bce_with_logits_loss(d_on_cover, d_target_label_cover)
             d_loss_on_cover.backward()
 
+            # Step 1: Encode messages with NECST (if enabled)
+            if self.necst is not None:
+                redundant_messages = self.necst.encode(messages)
+            else:
+                redundant_messages = messages
+
             # train on fake
-            encoded_images, noised_images, decoded_messages = self.encoder_decoder(images, messages)
+            encoded_images, noised_images, decoded_messages = self.encoder_decoder(images, redundant_messages)
             d_on_encoded = self.discriminator(encoded_images.detach())
             d_loss_on_encoded = self.bce_with_logits_loss(d_on_encoded, d_target_label_encoded)
 
@@ -93,14 +130,28 @@ class Hidden:
                 vgg_on_enc = self.vgg_loss(encoded_images)
                 g_loss_enc = self.mse_loss(vgg_on_cov, vgg_on_enc)
 
-            g_loss_dec = self.mse_loss(decoded_messages, messages)
-            g_loss = self.config.adversarial_loss * g_loss_adv + self.config.encoder_loss * g_loss_enc \
-                     + self.config.decoder_loss * g_loss_dec
+            # Step 2: Decode from redundant messages back to original messages (if NECST enabled)
+            if self.necst is not None:
+                decoded_original_messages = self.necst.decode(decoded_messages)
+                g_loss_dec = self.mse_loss(decoded_original_messages, messages)
+            else:
+                decoded_original_messages = decoded_messages
+                g_loss_dec = self.mse_loss(decoded_messages, messages)
+
+            # Step 3: Compute FFT consistency loss (if enabled)
+            if self.fft_loss is not None:
+                fft_loss_value = self.fft_loss(encoded_images, images)
+                g_loss = self.config.adversarial_loss * g_loss_adv + self.config.encoder_loss * g_loss_enc \
+                         + self.config.decoder_loss * g_loss_dec + self.config.fft_loss_weight * fft_loss_value
+            else:
+                fft_loss_value = 0.0
+                g_loss = self.config.adversarial_loss * g_loss_adv + self.config.encoder_loss * g_loss_enc \
+                         + self.config.decoder_loss * g_loss_dec
 
             g_loss.backward()
             self.optimizer_enc_dec.step()
 
-        decoded_rounded = decoded_messages.detach().cpu().numpy().round().clip(0, 1)
+        decoded_rounded = decoded_original_messages.detach().cpu().numpy().round().clip(0, 1)
         bitwise_avg_err = np.sum(np.abs(decoded_rounded - messages.detach().cpu().numpy())) / (
                 batch_size * messages.shape[1])
 
@@ -108,6 +159,7 @@ class Hidden:
             'loss           ': g_loss.item(),
             'encoder_mse    ': g_loss_enc.item(),
             'dec_mse        ': g_loss_dec.item(),
+            'fft_loss       ': fft_loss_value if isinstance(fft_loss_value, float) else fft_loss_value.item(),
             'bitwise-error  ': bitwise_avg_err,
             'adversarial_bce': g_loss_adv.item(),
             'discr_cover_bce': d_loss_on_cover.item(),
@@ -137,14 +189,20 @@ class Hidden:
         self.encoder_decoder.eval()
         self.discriminator.eval()
         with torch.no_grad():
-            d_target_label_cover = torch.full((batch_size, 1), self.cover_label, device=self.device)
-            d_target_label_encoded = torch.full((batch_size, 1), self.encoded_label, device=self.device)
-            g_target_label_encoded = torch.full((batch_size, 1), self.cover_label, device=self.device)
+            d_target_label_cover = torch.full((batch_size, 1), self.cover_label, device=self.device, dtype=torch.float)
+            d_target_label_encoded = torch.full((batch_size, 1), self.encoded_label, device=self.device, dtype=torch.float)
+            g_target_label_encoded = torch.full((batch_size, 1), self.cover_label, device=self.device, dtype=torch.float)
 
             d_on_cover = self.discriminator(images)
             d_loss_on_cover = self.bce_with_logits_loss(d_on_cover, d_target_label_cover)
 
-            encoded_images, noised_images, decoded_messages = self.encoder_decoder(images, messages)
+            # Encode messages with NECST (if enabled)
+            if self.necst is not None:
+                redundant_messages = self.necst.encode(messages)
+            else:
+                redundant_messages = messages
+
+            encoded_images, noised_images, decoded_messages = self.encoder_decoder(images, redundant_messages)
 
             d_on_encoded = self.discriminator(encoded_images)
             d_loss_on_encoded = self.bce_with_logits_loss(d_on_encoded, d_target_label_encoded)
@@ -159,11 +217,25 @@ class Hidden:
                 vgg_on_enc = self.vgg_loss(encoded_images)
                 g_loss_enc = self.mse_loss(vgg_on_cov, vgg_on_enc)
 
-            g_loss_dec = self.mse_loss(decoded_messages, messages)
-            g_loss = self.config.adversarial_loss * g_loss_adv + self.config.encoder_loss * g_loss_enc \
-                     + self.config.decoder_loss * g_loss_dec
+            # Decode from redundant messages back to original messages (if NECST enabled)
+            if self.necst is not None:
+                decoded_original_messages = self.necst.decode(decoded_messages)
+                g_loss_dec = self.mse_loss(decoded_original_messages, messages)
+            else:
+                decoded_original_messages = decoded_messages
+                g_loss_dec = self.mse_loss(decoded_messages, messages)
 
-        decoded_rounded = decoded_messages.detach().cpu().numpy().round().clip(0, 1)
+            # Compute FFT consistency loss (if enabled)
+            if self.fft_loss is not None:
+                fft_loss_value = self.fft_loss(encoded_images, images)
+                g_loss = self.config.adversarial_loss * g_loss_adv + self.config.encoder_loss * g_loss_enc \
+                         + self.config.decoder_loss * g_loss_dec + self.config.fft_loss_weight * fft_loss_value
+            else:
+                fft_loss_value = 0.0
+                g_loss = self.config.adversarial_loss * g_loss_adv + self.config.encoder_loss * g_loss_enc \
+                         + self.config.decoder_loss * g_loss_dec
+
+        decoded_rounded = decoded_original_messages.detach().cpu().numpy().round().clip(0, 1)
         bitwise_avg_err = np.sum(np.abs(decoded_rounded - messages.detach().cpu().numpy())) / (
                 batch_size * messages.shape[1])
 
@@ -171,6 +243,7 @@ class Hidden:
             'loss           ': g_loss.item(),
             'encoder_mse    ': g_loss_enc.item(),
             'dec_mse        ': g_loss_dec.item(),
+            'fft_loss       ': fft_loss_value if isinstance(fft_loss_value, float) else fft_loss_value.item(),
             'bitwise-error  ': bitwise_avg_err,
             'adversarial_bce': g_loss_adv.item(),
             'discr_cover_bce': d_loss_on_cover.item(),
