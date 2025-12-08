@@ -113,5 +113,5 @@ def get_distortion_only_config():
     """Only distortion pool enabled"""
     config = get_baseline_config()
     config.use_distortion_pool = True
-    config.distortion_prob = 0.5
+    config.distortion_prob = 0.1  # Low probability for easier convergence
     return config
