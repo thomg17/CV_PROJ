@@ -3,9 +3,10 @@ Training script for FFT-only ablation study
 Tests the impact of FFT consistency loss without NECST or distortion pool
 """
 import torch
+import time
 from configs import get_fft_only_config, get_training_options
 from model.hidden import Hidden
-from train_baseline import train_epoch, validate, save_checkpoint
+from train_baseline import train_epoch, validate, save_checkpoint, create_data_loaders
 
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -31,21 +32,47 @@ def main():
     print('\n=== Initializing Model ===')
     hidden_net = Hidden(hidden_config, device)
 
+    # Create data loaders
+    print('\n=== Loading Datasets ===')
+    train_loader, validation_loader = create_data_loaders(
+        training_options.train_folder,
+        training_options.validation_folder,
+        training_options.batch_size,
+        hidden_config.H
+    )
+    print(f'Training batches: {len(train_loader)}')
+    print(f'Validation batches: {len(validation_loader)}')
+
     # Training loop
     print('\n=== Starting Training ===')
     best_val_loss = float('inf')
 
     for epoch in range(training_options.start_epoch, training_options.number_of_epochs):
-        print(f'\nEpoch {epoch + 1}/{training_options.number_of_epochs}')
+        epoch_start_time = time.time()
+        print(f'\n--- Epoch {epoch + 1}/{training_options.number_of_epochs} ---')
 
         # Train
-        train_losses = train_epoch(hidden_net, training_options, epoch, device)
+        train_losses = train_epoch(
+            hidden_net,
+            train_loader,
+            epoch + 1,
+            device,
+            hidden_config.message_length
+        )
 
         # Validate
-        val_losses = validate(hidden_net, training_options, epoch, device)
+        print('Running validation...')
+        val_losses = validate(
+            hidden_net,
+            validation_loader,
+            device,
+            hidden_config.message_length
+        )
+
+        epoch_time = time.time() - epoch_start_time
 
         # Print epoch summary
-        print(f'\nEpoch {epoch + 1} Summary:')
+        print(f'\nEpoch {epoch + 1} Summary ({epoch_time:.1f}s):')
         print(f'Train Loss: {train_losses["loss           "]:.4f} | Val Loss: {val_losses["loss           "]:.4f}')
         print(f'Train BitErr: {train_losses["bitwise-error  "]:.4f} | Val BitErr: {val_losses["bitwise-error  "]:.4f}')
         if hidden_config.use_fft_loss:
