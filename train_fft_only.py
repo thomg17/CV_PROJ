@@ -29,7 +29,7 @@ def main():
 
     # Initialize model
     print('\n=== Initializing Model ===')
-    hidden_net = Hidden(hidden_config, device, None, None)
+    hidden_net = Hidden(hidden_config, device)
 
     # Training loop
     print('\n=== Starting Training ===')

@@ -29,7 +29,7 @@ def main():
 
     # Initialize model
     print('\n=== Initializing Model ===')
-    hidden_net = Hidden(hidden_config, device, None, None)
+    hidden_net = Hidden(hidden_config, device)
 
     # Pretrain NECST
     if hidden_config.use_necst:
