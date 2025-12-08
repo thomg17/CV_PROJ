@@ -34,7 +34,7 @@ def main():
     # Pretrain NECST
     if hidden_config.use_necst:
         print('\n=== Pretraining NECST ===')
-        hidden_net.necst.pretrain(iterations=hidden_config.necst_iter, batch_size=training_options.batch_size)
+        hidden_net.necst.pretrain()
         print('NECST pretrained successfully!')
 
     # Training loop
