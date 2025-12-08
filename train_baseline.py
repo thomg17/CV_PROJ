@@ -7,10 +7,34 @@ import os
 import time
 import torch
 import numpy as np
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms, datasets
+from PIL import Image
 from model.hidden import Hidden
 from configs import get_baseline_config, get_training_options
+
+
+class ImageDataset(Dataset):
+    """Custom dataset for loading images from a flat directory (e.g., COCO)"""
+    def __init__(self, folder, transform=None):
+        self.folder = folder
+        self.transform = transform
+        self.image_files = [
+            f for f in os.listdir(folder)
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))
+        ]
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.folder, self.image_files[idx])
+        image = Image.open(img_path).convert('RGB')
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, 0  # Return dummy label (0) since we don't need classes
 
 
 def create_data_loaders(train_folder, validation_folder, batch_size, image_size):
@@ -20,8 +44,8 @@ def create_data_loaders(train_folder, validation_folder, batch_size, image_size)
         transforms.ToTensor(),
     ])
 
-    train_dataset = datasets.ImageFolder(train_folder, transform=transform)
-    validation_dataset = datasets.ImageFolder(validation_folder, transform=transform)
+    train_dataset = ImageDataset(train_folder, transform=transform)
+    validation_dataset = ImageDataset(validation_folder, transform=transform)
 
     train_loader = DataLoader(
         train_dataset,
