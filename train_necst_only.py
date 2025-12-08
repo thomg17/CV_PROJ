@@ -83,18 +83,17 @@ def main():
         print(f'Train BitErr: {train_losses["bitwise-error  "]:.4f} | Val BitErr: {val_losses["bitwise-error  "]:.4f}')
 
         # Save checkpoint
-        is_best = val_losses["loss           "] < best_val_loss
-        if is_best:
+        if val_losses["loss           "] < best_val_loss:
             best_val_loss = val_losses["loss           "]
             print(f'New best validation loss: {best_val_loss:.4f}')
 
-        if (epoch + 1) % 10 == 0 or is_best:
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': hidden_net.encoder_decoder.state_dict(),
-                'best_val_loss': best_val_loss,
-                'optimizer': hidden_net.optimizer_enc_dec.state_dict(),
-            }, is_best, training_options.runs_folder, training_options.experiment_name)
+        if (epoch + 1) % 10 == 0 or val_losses["loss           "] == best_val_loss:
+            save_checkpoint(
+                hidden_net,
+                epoch + 1,
+                training_options.runs_folder,
+                training_options.experiment_name
+            )
 
     print('\n=== Training Complete ===')
     print(f'Best validation loss: {best_val_loss:.4f}')
