@@ -211,9 +211,18 @@ def main():
     hidden_config = get_full_config()
     training_options = get_training_options('full_model')
 
+    # Override runs_folder to use Google Drive if available
+    gdrive_path = '/content/drive/MyDrive/CV_Project_Checkpoints'
+    if os.path.exists('/content/drive/MyDrive'):
+        training_options.runs_folder = gdrive_path
+        os.makedirs(gdrive_path, exist_ok=True)
+        print(f'\nGoogle Drive detected! Checkpoints will be saved to: {gdrive_path}')
+    else:
+        print(f'\nGoogle Drive not mounted. Using local path: {training_options.runs_folder}')
+
     # Setup device
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    print(f'\nUsing device: {device}')
+    print(f'Using device: {device}')
 
     # Create model
     print('\n=== Initializing Full Model ===')

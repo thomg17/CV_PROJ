@@ -82,7 +82,7 @@ def get_training_options(experiment_name):
     """
     return TrainingOptions(
         batch_size=16,
-        number_of_epochs=50,
+        number_of_epochs=30,  # Reduced from 50 - diminishing returns after 30
         train_folder='data/train',
         validation_folder='data/validation',
         runs_folder='runs',
