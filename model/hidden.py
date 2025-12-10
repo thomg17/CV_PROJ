@@ -110,7 +110,7 @@ class Hidden:
                 redundant_messages = messages
 
             # train on fake
-            encoded_images, noised_images, decoded_messages = self.encoder_decoder(images, redundant_messages)
+            encoded_images, noised_images, decoded_messages, distortion_info = self.encoder_decoder(images, redundant_messages)
             d_on_encoded = self.discriminator(encoded_images.detach())
             d_loss_on_encoded = self.bce_with_logits_loss(d_on_encoded, d_target_label_encoded)
 
@@ -165,7 +165,7 @@ class Hidden:
             'discr_cover_bce': d_loss_on_cover.item(),
             'discr_encod_bce': d_loss_on_encoded.item()
         }
-        return losses, (encoded_images, noised_images, decoded_messages)
+        return losses, (encoded_images, noised_images, decoded_messages), distortion_info
 
     def validate_on_batch(self, batch: list):
         """
@@ -202,7 +202,7 @@ class Hidden:
             else:
                 redundant_messages = messages
 
-            encoded_images, noised_images, decoded_messages = self.encoder_decoder(images, redundant_messages)
+            encoded_images, noised_images, decoded_messages, distortion_info = self.encoder_decoder(images, redundant_messages)
 
             d_on_encoded = self.discriminator(encoded_images)
             d_loss_on_encoded = self.bce_with_logits_loss(d_on_encoded, d_target_label_encoded)
@@ -249,7 +249,7 @@ class Hidden:
             'discr_cover_bce': d_loss_on_cover.item(),
             'discr_encod_bce': d_loss_on_encoded.item()
         }
-        return losses, (encoded_images, noised_images, decoded_messages)
+        return losses, (encoded_images, noised_images, decoded_messages), distortion_info
 
     def to_string(self):
         return '{}\n{}'.format(str(self.encoder_decoder), str(self.discriminator))

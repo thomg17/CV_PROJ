@@ -24,9 +24,12 @@ class EncoderDecoder(nn.Module):
     def forward(self, image, message):
         encoded_image = self.encoder(image, message)
         # Use hybrid_distorter if provided, otherwise use standard attacker
+        distortion_info = {'distorter_type': None, 'distortion_types': None}
         if self.hybrid_distorter is not None:
-            noised_image = self.hybrid_distorter(encoded_image)
+            noised_image, distorter_type, distortion_types = self.hybrid_distorter(encoded_image)
+            distortion_info = {'distorter_type': distorter_type, 'distortion_types': distortion_types}
         else:
             noised_image = self.attacker(encoded_image)
+            distortion_info = {'distorter_type': 'attack_network', 'distortion_types': None}
         decoded_message = self.decoder(noised_image)
-        return encoded_image, noised_image, decoded_message
+        return encoded_image, noised_image, decoded_message, distortion_info

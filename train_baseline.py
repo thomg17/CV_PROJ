@@ -87,6 +87,18 @@ def train_epoch(hidden_net, train_loader, epoch, device, message_length):
         'discr_encod_bce': []
     }
 
+    # Track distortion statistics
+    distortion_stats = {
+        'attack_network': {'count': 0, 'total_loss': 0.0, 'total_biterr': 0.0},
+        'distortion_pool': {'count': 0, 'total_loss': 0.0, 'total_biterr': 0.0},
+        'downsample_upsample': {'count': 0, 'total_loss': 0.0, 'total_biterr': 0.0},
+        'compression': {'count': 0, 'total_loss': 0.0, 'total_biterr': 0.0},
+        'quantization': {'count': 0, 'total_loss': 0.0, 'total_biterr': 0.0},
+        'color_change': {'count': 0, 'total_loss': 0.0, 'total_biterr': 0.0},
+        'flipper': {'count': 0, 'total_loss': 0.0, 'total_biterr': 0.0},
+        'identity': {'count': 0, 'total_loss': 0.0, 'total_biterr': 0.0}
+    }
+
     batch_count = len(train_loader)
 
     for batch_idx, (images, _) in enumerate(train_loader):
@@ -94,10 +106,25 @@ def train_epoch(hidden_net, train_loader, epoch, device, message_length):
         batch_size = images.shape[0]
         messages = generate_random_messages(batch_size, message_length, device)
 
-        losses, _ = hidden_net.train_on_batch([images, messages])
+        losses, _, distortion_info = hidden_net.train_on_batch([images, messages])
 
         for key in epoch_losses.keys():
             epoch_losses[key].append(losses[key])
+
+        # Track distortion statistics
+        if distortion_info and distortion_info['distorter_type']:
+            distorter_type = distortion_info['distorter_type']
+            distortion_stats[distorter_type]['count'] += batch_size
+            distortion_stats[distorter_type]['total_loss'] += losses['loss           '] * batch_size
+            distortion_stats[distorter_type]['total_biterr'] += losses['bitwise-error  '] * batch_size
+
+            # Track individual distortion types if using distortion pool
+            if distorter_type == 'distortion_pool' and distortion_info['distortion_types']:
+                for dist_type in distortion_info['distortion_types']:
+                    if dist_type in distortion_stats:
+                        distortion_stats[dist_type]['count'] += 1
+                        distortion_stats[dist_type]['total_loss'] += losses['loss           ']
+                        distortion_stats[dist_type]['total_biterr'] += losses['bitwise-error  ']
 
         if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == batch_count:
             print(f'Epoch {epoch} [{batch_idx + 1}/{batch_count}] | '
@@ -107,7 +134,17 @@ def train_epoch(hidden_net, train_loader, epoch, device, message_length):
                   f'BitErr: {losses["bitwise-error  "]:.4f}')
 
     avg_losses = {key: np.mean(values) for key, values in epoch_losses.items()}
-    return avg_losses
+
+    # Compute average statistics for each distortion type
+    for dist_type, stats in distortion_stats.items():
+        if stats['count'] > 0:
+            stats['avg_loss'] = stats['total_loss'] / stats['count']
+            stats['avg_biterr'] = stats['total_biterr'] / stats['count']
+        else:
+            stats['avg_loss'] = 0.0
+            stats['avg_biterr'] = 0.0
+
+    return avg_losses, distortion_stats
 
 
 def validate(hidden_net, validation_loader, device, message_length):
@@ -132,13 +169,13 @@ def validate(hidden_net, validation_loader, device, message_length):
             batch_size = images.shape[0]
             messages = generate_random_messages(batch_size, message_length, device)
 
-            losses, _ = hidden_net.validate_on_batch([images, messages])
+            losses, _, distortion_info = hidden_net.validate_on_batch([images, messages])
 
             for key in validation_losses.keys():
                 validation_losses[key].append(losses[key])
 
     avg_losses = {key: np.mean(values) for key, values in validation_losses.items()}
-    return avg_losses
+    return avg_losses  # Validation doesn't need distortion stats
 
 
 def save_checkpoint(hidden_net, epoch, checkpoint_dir, experiment_name):

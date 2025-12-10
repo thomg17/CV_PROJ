@@ -265,7 +265,8 @@ def main():
         'val_enc_mse': [],
         'train_fft': [],
         'val_fft': [],
-        'epoch_times': []
+        'epoch_times': [],
+        'distortion_stats_per_epoch': []  # Will store distortion stats for each epoch
     }
 
     for epoch in range(training_options.start_epoch, training_options.number_of_epochs):
@@ -274,7 +275,7 @@ def main():
         print(f'\n--- Epoch {epoch + 1}/{training_options.number_of_epochs} ---')
 
         # Train
-        train_losses = train_epoch(
+        train_losses, train_distortion_stats = train_epoch(
             hidden_net,
             train_loader,
             epoch + 1,
@@ -304,6 +305,10 @@ def main():
         training_stats['train_fft'].append(float(train_losses["fft_loss       "]))
         training_stats['val_fft'].append(float(val_losses["fft_loss       "]))
         training_stats['epoch_times'].append(float(epoch_time))
+        training_stats['distortion_stats_per_epoch'].append({
+            'epoch': epoch + 1,
+            'distortion_stats': train_distortion_stats
+        })
 
         # Print epoch summary
         print(f'\n=== Epoch {epoch + 1} Summary (Time: {epoch_time:.1f}s) ===')

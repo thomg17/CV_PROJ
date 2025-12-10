@@ -33,15 +33,17 @@ class DistortionPool:
             images_tensor: Torch tensor (B, C, H, W) in range [0, 1]
 
         Returns:
-            Distorted images tensor (B, C, H, W)
+            Tuple of (distorted images tensor (B, C, H, W), list of distortion types used)
         """
         batch_size = images_tensor.shape[0]
         target_h, target_w = images_tensor.shape[2], images_tensor.shape[3]
         distorted_batch = []
+        distortion_types_used = []
 
         for i in range(batch_size):
             # Select random distortion
             distortion_type = random.choice(self.distortions)
+            distortion_types_used.append(distortion_type)
 
             # Convert tensor to numpy/PIL for processing
             img_tensor = images_tensor[i]  # (C, H, W)
@@ -104,7 +106,7 @@ class DistortionPool:
 
         # Stack back into batch
         distorted_tensor = torch.stack(distorted_batch).to(self.device)
-        return distorted_tensor
+        return distorted_tensor, distortion_types_used
 
 
 class HybridDistorter:
@@ -134,14 +136,14 @@ class HybridDistorter:
             encoded_images: Encoded images tensor (B, C, H, W)
 
         Returns:
-            Noised images tensor (B, C, H, W)
+            Tuple of (noised images tensor (B, C, H, W), distorter type used, list of specific distortions if pool)
         """
         if random.random() < self.distortion_prob:
             # Use distortion pool (non-differentiable)
             with torch.no_grad():
-                noised_images = self.distortion_pool.apply_random_distortion(encoded_images)
+                noised_images, distortion_types = self.distortion_pool.apply_random_distortion(encoded_images)
+            return noised_images, 'distortion_pool', distortion_types
         else:
             # Use attack network (differentiable)
             noised_images = self.attack_network(encoded_images)
-
-        return noised_images
+            return noised_images, 'attack_network', None
