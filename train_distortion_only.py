@@ -120,7 +120,7 @@ def main():
         print(f'\n--- Epoch {epoch + 1}/{training_options.number_of_epochs} ---')
 
         # Train
-        train_losses = train_epoch(
+        train_losses, _ = train_epoch(  # Unpack tuple (losses, distortion_stats)
             hidden_net,
             train_loader,
             epoch + 1,
