@@ -7,6 +7,8 @@ import os
 import time
 import torch
 import numpy as np
+import json
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision import transforms, datasets
 from model.hidden import Hidden
@@ -134,6 +136,71 @@ def save_checkpoint(hidden_net, epoch, checkpoint_dir, experiment_name):
     print(f'Checkpoint saved: {checkpoint_path}')
 
 
+def save_training_stats(stats, checkpoint_dir, experiment_name):
+    """Save training statistics to JSON file"""
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    stats_path = os.path.join(checkpoint_dir, f'{experiment_name}_training_stats.json')
+
+    with open(stats_path, 'w') as f:
+        json.dump(stats, f, indent=2)
+
+    print(f'Training stats saved: {stats_path}')
+
+
+def plot_training_graphs(stats, checkpoint_dir, experiment_name):
+    """Generate and save training progress graphs"""
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    epochs = stats['epochs']
+
+    # Create figure with 2 subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Plot 1: Loss
+    ax1.plot(epochs, stats['train_loss'], 'b-', label='Train Loss', linewidth=2)
+    ax1.plot(epochs, stats['val_loss'], 'orange', label='Val Loss', linewidth=2)
+    ax1.set_xlabel('Epoch', fontsize=12)
+    ax1.set_ylabel('Loss', fontsize=12)
+    ax1.set_title('Training Progress - Loss', fontsize=14, fontweight='bold')
+    ax1.legend(fontsize=10)
+    ax1.grid(True, alpha=0.3)
+
+    # Plot 2: Bitwise Error
+    ax2.plot(epochs, stats['train_biterr'], 'b-', label='Train BitErr', linewidth=2)
+    ax2.plot(epochs, stats['val_biterr'], 'orange', label='Val BitErr', linewidth=2)
+    ax2.set_xlabel('Epoch', fontsize=12)
+    ax2.set_ylabel('Bitwise Error', fontsize=12)
+    ax2.set_title('Training Progress - Bitwise Error', fontsize=14, fontweight='bold')
+    ax2.legend(fontsize=10)
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    # Save figure
+    graph_path = os.path.join(checkpoint_dir, f'{experiment_name}_training_progress.png')
+    plt.savefig(graph_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print(f'Training graph saved: {graph_path}')
+
+    # If FFT loss is being tracked, create additional graph
+    if 'train_fft' in stats and len(stats['train_fft']) > 0:
+        fig, ax = plt.subplots(1, 1, figsize=(7, 5))
+        ax.plot(epochs, stats['train_fft'], 'b-', label='Train FFT Loss', linewidth=2)
+        ax.plot(epochs, stats['val_fft'], 'orange', label='Val FFT Loss', linewidth=2)
+        ax.set_xlabel('Epoch', fontsize=12)
+        ax.set_ylabel('FFT Loss', fontsize=12)
+        ax.set_title('Training Progress - FFT Loss', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+
+        fft_graph_path = os.path.join(checkpoint_dir, f'{experiment_name}_fft_loss.png')
+        plt.savefig(fft_graph_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        print(f'FFT loss graph saved: {fft_graph_path}')
+
+
 def main():
     """Main training function for FULL model"""
     print('\n' + '='*60)
@@ -178,6 +245,20 @@ def main():
     print('\n=== Starting Training ===')
     best_val_loss = float('inf')
 
+    # Initialize statistics tracking
+    training_stats = {
+        'epochs': [],
+        'train_loss': [],
+        'val_loss': [],
+        'train_biterr': [],
+        'val_biterr': [],
+        'train_enc_mse': [],
+        'val_enc_mse': [],
+        'train_fft': [],
+        'val_fft': [],
+        'epoch_times': []
+    }
+
     for epoch in range(training_options.start_epoch, training_options.number_of_epochs):
         epoch_start_time = time.time()
 
@@ -203,6 +284,18 @@ def main():
 
         epoch_time = time.time() - epoch_start_time
 
+        # Update statistics
+        training_stats['epochs'].append(epoch + 1)
+        training_stats['train_loss'].append(float(train_losses["loss           "]))
+        training_stats['val_loss'].append(float(val_losses["loss           "]))
+        training_stats['train_biterr'].append(float(train_losses["bitwise-error  "]))
+        training_stats['val_biterr'].append(float(val_losses["bitwise-error  "]))
+        training_stats['train_enc_mse'].append(float(train_losses["encoder_mse    "]))
+        training_stats['val_enc_mse'].append(float(val_losses["encoder_mse    "]))
+        training_stats['train_fft'].append(float(train_losses["fft_loss       "]))
+        training_stats['val_fft'].append(float(val_losses["fft_loss       "]))
+        training_stats['epoch_times'].append(float(epoch_time))
+
         # Print epoch summary
         print(f'\n=== Epoch {epoch + 1} Summary (Time: {epoch_time:.1f}s) ===')
         print(f'Train Loss: {train_losses["loss           "]:.4f} | '
@@ -214,7 +307,7 @@ def main():
         print(f'Train FFT: {train_losses["fft_loss       "]:.4f} | '
               f'Val FFT: {val_losses["fft_loss       "]:.4f}')
 
-        # Save checkpoint
+        # Save checkpoint and generate graphs
         if (epoch + 1) % 10 == 0 or val_losses["loss           "] < best_val_loss:
             save_checkpoint(
                 hidden_net,
@@ -223,12 +316,21 @@ def main():
                 training_options.experiment_name
             )
 
+            # Save statistics and generate graphs
+            save_training_stats(training_stats, training_options.runs_folder, training_options.experiment_name)
+            plot_training_graphs(training_stats, training_options.runs_folder, training_options.experiment_name)
+
             if val_losses["loss           "] < best_val_loss:
                 best_val_loss = val_losses["loss           "]
                 print(f'New best validation loss: {best_val_loss:.4f}')
 
     print('\n=== Training Complete ===')
     print(f'Best validation loss: {best_val_loss:.4f}')
+
+    # Final save of statistics and graphs
+    save_training_stats(training_stats, training_options.runs_folder, training_options.experiment_name)
+    plot_training_graphs(training_stats, training_options.runs_folder, training_options.experiment_name)
+    print('\nFinal statistics and graphs saved!')
 
 
 if __name__ == '__main__':
